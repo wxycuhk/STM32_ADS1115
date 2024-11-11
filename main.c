@@ -1,19 +1,19 @@
 /**
  ****************************************************************************************************
  * @file        main.c
- * @author      ÕýµãÔ­×ÓÍÅ¶Ó(ALIENTEK)
+ * @author      ï¿½ï¿½ï¿½ï¿½Ô­ï¿½ï¿½ï¿½Å¶ï¿½(ALIENTEK)
  * @version     V1.0
  * @date        2021-10-23
- * @brief       IIC ÊµÑé
- * @license     Copyright (c) 2020-2032, ¹ãÖÝÊÐÐÇÒíµç×Ó¿Æ¼¼ÓÐÏÞ¹«Ë¾
+ * @brief       IIC Êµï¿½ï¿½
+ * @license     Copyright (c) 2020-2032, ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ó¿Æ¼ï¿½ï¿½ï¿½ï¿½Þ¹ï¿½Ë¾
  ****************************************************************************************************
  * @attention
  *
- * ÊµÑéÆ½Ì¨:ÕýµãÔ­×Ó Ì½Ë÷Õß F407¿ª·¢°å
- * ÔÚÏßÊÓÆµ:www.yuanzige.com
- * ¼¼ÊõÂÛÌ³:www.openedv.com
- * ¹«Ë¾ÍøÖ·:www.alientek.com
- * ¹ºÂòµØÖ·:openedv.taobao.com
+ * Êµï¿½ï¿½Æ½Ì¨:ï¿½ï¿½ï¿½ï¿½Ô­ï¿½ï¿½ Ì½ï¿½ï¿½ï¿½ï¿½ F407ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
+ * ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æµ:www.yuanzige.com
+ * ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ì³:www.openedv.com
+ * ï¿½ï¿½Ë¾ï¿½ï¿½Ö·:www.alientek.com
+ * ï¿½ï¿½ï¿½ï¿½ï¿½Ö·:openedv.taobao.com
  *
  ****************************************************************************************************
  */
@@ -31,18 +31,66 @@
 
 ADS1115 ADS0; // 0X48
 ADS1115 ADS1; // 0X49
-
+int idx = 0;
+int16_t ADS0_value[4] = {0};
+int16_t ADS1_value[4] = {0};
 
 int main(void)
 {
-	  HAL_Init();                                 /* ³õÊ¼»¯HAL¿â */
-    sys_stm32_clock_init(336, 8, 2, 7);         /* ÉèÖÃÊ±ÖÓ,168Mhz */
-    delay_init(168);                            /* ÑÓÊ±³õÊ¼»¯ */
-    usart_init(115200);                         /* ´®¿Ú³õÊ¼»¯Îª115200 */
-		iic_init();                                 /* ³õÊ¼»¯iic gpio */
-		ADS1115_build(&ADS0, 0x48);
-		ADS1115_build(&ADS1, 0x49);
+	HAL_Init();                                 /* ï¿½ï¿½Ê¼ï¿½ï¿½HALï¿½ï¿½ */
+    sys_stm32_clock_init(336, 8, 2, 7);         /* ï¿½ï¿½ï¿½ï¿½Ê±ï¿½ï¿½,168Mhz */
+    delay_init(168);                            /* ï¿½ï¿½Ê±ï¿½ï¿½Ê¼ï¿½ï¿½ */
+    usart_init(115200);                         /* ï¿½ï¿½ï¿½Ú³ï¿½Ê¼ï¿½ï¿½Îª115200 */
+	iic_init();                                 /* ï¿½ï¿½Ê¼ï¿½ï¿½iic gpio */
+	ADS1115_build(&ADS0, 0x48);
+	ADS1115_build(&ADS1, 0x49);
+    ADS1115_SetDataRate(&ADS0, 7); //highest speed
+    ADS1115_SetDataRate(&ADS1, 7); //highest speed
+
+    while(1)
+    {
+        ADS_request_all();
+        while(ADS_read_all());
+        ADS_print_all();
+        delay_ms(1000);
+    }
+
 		
 }	
 	
+void ADS_request_all()
+{
+    if(ADS1115_isConnected(&ADS0))   ADS1115_RequestADC(&ADS0);
+    if(ADS1115_isConnected(&ADS1))   ADS1115_RequestADC(&ADS1);
+    
+}
 
+uint8_t ADS_read_all()
+{
+    if(ADS1115_isConnected(&ADS0))   ADS0_value[idx] = ADS1115_GetValue(&ADS0);
+    if(ADS1115_isConnected(&ADS1))   ADS1_value[idx] = ADS1115_GetValue(&ADS1);
+    idx++;
+    if (idx < 4)
+    {
+        ADS_request_all();
+        return 1;
+    }
+    idx = 0;
+    return 0;
+}
+
+void ADS_print_all()
+{
+    printf("ADS0: ");
+    for(int i = 0; i < 4; i++)
+    {
+        printf("0x%x ", ADS0_value[i]);
+    }
+    printf("\r\n");
+    printf("ADS1: ");
+    for(int i = 0; i < 4; i++)
+    {
+        printf("0x%x ", ADS1_value[i]);
+    }
+    printf("\r\n");
+}
