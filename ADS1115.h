@@ -155,6 +155,10 @@ uint8_t ADS1115_GetMode(ADS1115 *ads);
 void ADS1115_RequestADC(ADS1115 *ads, uint16_t readmode);
 int16_t ADS1115_GetValue(ADS1115 *ads);
 int16_t ADS1115_ReadADC(ADS1115 *ads, uint16_t readmode);
+void ADS_request_all(void);
+uint8_t ADS_read_all(void);
+void ADS_print_all(void);
+void printBits(size_t const size, void const * const ptr);
 
 
 

@@ -1,7 +1,7 @@
 #include "ADS1115.h"
 #include "./BSP/IIC/myiic.h"
-#include "delay.h"
-#include "usart.h"
+#include "./SYSTEM/delay/delay.h"
+#include "./SYSTEM/usart/usart.h"
 
 // iic代码直接调用正点原子库myiic
 // 该ADS1115代码可以实现多个ADS1115模块的iic通信，只需修改地址即可
@@ -27,7 +27,7 @@ uint8_t iic_ReadBytes(uint8_t addr, uint8_t reg, uint8_t length, uint8_t *data){
     ack_flag = iic_wait_ack();
     for(i = 0; i < length; i++)
     {
-        data[i] = iic_read_byte();
+        data[i] = iic_read_byte(0);
         if(i == length - 1) iic_nack();
         else iic_ack();
     }
@@ -51,7 +51,7 @@ uint8_t iic_RequestFrom(uint8_t addr, uint8_t length){
         if(receivedBytes == length - 1) iic_nack(); // 最后一个字节不应答
         else iic_ack(); // 其他字节应答
     }
-    iic_stop(); // 发送停止信号
+    //iic_stop(); // 发送停止信号
     return receivedBytes; // 返回接收到的字节数
 
 }
@@ -72,15 +72,15 @@ uint8_t iic_RequestFrom(uint8_t addr, uint8_t length){
 
 void ADS1115_build(ADS1115 *ads, uint8_t addr){ // set up the ADS1115 with addr and default config, must be done in setup
     ads->address = addr; // 7位地址
-    ads->addr_write = ads -> addr << 1 | 0; // 7位地址+1位读写位，写操作为0
-    ads->addr_read = ads -> addr << 1 | 1; // 7位地址+1位读写位，读操作为1
+    ads->addr_write = ads -> address << 1 | 0; // 7位地址+1位读写位，写操作为0
+    ads->addr_read = ads -> address << 1 | 1; // 7位地址+1位读写位，读操作为1
     ads->config = ADS_CONF_COMP | ADS_CONF_GAIN | ADS_CONF_RES_16 | ADS_CONF_CHAN_4;
     ads->conversionDelay = ADS1115_CONVERSION_DELAY;
     ads->bitShift = 0;
     ads->maxPorts = 4;
     ads->gain = ADS1115_PGA_6_144V;
     ads->mode = ADS1115_MODE_SINGLE;
-    ads->datarate = 4;
+    ads->datarate = 7;
     ads->err = ADS1115_OK;
     ads->compMode = 0;
     ads->compPol = 1;
@@ -90,7 +90,7 @@ void ADS1115_build(ADS1115 *ads, uint8_t addr){ // set up the ADS1115 with addr 
 }
 
 void ADS1115_begin(uint8_t addr){
-    IIC_Init(); //wire.begin() in arduino to init scl & sda pin
+    //iic_init(); //wire.begin() in arduino to init scl & sda pin
     //HAL_GPIO_WritePin(IIC_SCL_GPIO_PORT, IIC_SCL_GPIO_PIN, GPIO_PIN_SET);
     //HAL_GPIO_WritePin(IIC_SDA_GPIO_PORT, IIC_SDA_GPIO_PIN, GPIO_PIN_SET);
     if(addr < 0x48 || addr > 0x4B) 
@@ -114,17 +114,22 @@ uint8_t ADS1115_WriteReg(ADS1115 *ads, uint8_t reg, uint16_t data){
     uint8_t ack_flag = 0;
     //7位地址+1位读写位，写操作
     buf[0] = ads -> addr_write; // 7位地址+1位读写位，写操作
+		//printf("write address is: 0x%x\r\n", buf[0]);
     buf[1] = reg; // 设置iic寄存器指针 0x01
-    buf[2] = (uint8_t)(data >> 8); //MSB: 写入寄存器的高8位
-    buf[3] = (uint8_t)(data & 0xFF); //LSB: 写入寄存器的低8位
-    HAL_GPIO_WritePin(IIC_SCL_GPIO_PORT, IIC_SCL_GPIO_PIN, GPIO_PIN_SET); // CONFIRM scl is high at beginning
+    buf[2] = (data >> 8); //MSB: 写入寄存器的高8位
+		//printf("HCMD is: 0x%x       ", buf[2]);
+    buf[3] = (data & 0xFF); //LSB: 写入寄存器的低8位
+		//printf("CMD is: 0x%x", buf[3]);
+    //HAL_GPIO_WritePin(IIC_SCL_GPIO_PORT, IIC_SCL_GPIO_PIN, GPIO_PIN_SET); // CONFIRM scl is high at beginning
     iic_start();
     for(i = 0; i < 4; i++)
     {
         iic_send_byte(buf[i]);
         ack_flag = iic_wait_ack();
+				if(ack_flag == 1) break;
     }
     iic_stop();
+		delay_ms(5); // necessary !!! needs modification for different datarate, 20 for 4
     return ack_flag;
 }
 
@@ -136,14 +141,29 @@ uint8_t ADS1115_WriteReg(ADS1115 *ads, uint8_t reg, uint16_t data){
 //    1). first byte: 7-bit I2C address followed by a high R/W bit : buf[0] = ads->addr_read
 //    2). second byte: ADS1115 response with MSB of the conversion register : buf[1] = iic_read_byte() >> 8
 //    3). third byte: ADS1115 response with LSB of the conversion register : buf[2] = iic_read_byte()
-
+void printBits(size_t const size, void const * const ptr)
+{
+    unsigned char *b = (unsigned char*) ptr;
+    unsigned char byte;
+    int i, j;
+    
+    for (i = size-1; i >= 0; i--) {
+        for (j = 7; j >= 0; j--) {
+            byte = (b[i] >> j) & 1;
+            printf("%u", byte);
+        }
+    }
+    puts("");
+}
 uint16_t ADS1115_ReadReg(ADS1115 *ads, uint8_t reg){
+		uint8_t ack_flag = 0;
     uint8_t i = 0;
     uint8_t buf[2];
-    uint16_t data = 0;
+    uint8_t data[2] = {0};
+		uint16_t result = 0;
     buf[0] = ads->addr_write;
     buf[1] = reg;
-    HAL_GPIO_WritePin(IIC_SCL_GPIO_PORT, IIC_SCL_GPIO_PIN, GPIO_PIN_SET); // CONFIRM scl is high at beginning
+    //HAL_GPIO_WritePin(IIC_SCL_GPIO_PORT, IIC_SCL_GPIO_PIN, GPIO_PIN_SET); // CONFIRM scl is high at beginning
     iic_start();
     for(i = 0; i < 2; i++) // 2. write to pointer register
     {
@@ -152,19 +172,42 @@ uint16_t ADS1115_ReadReg(ADS1115 *ads, uint8_t reg){
     }
     iic_stop();
 
-    int rv = iic_RequestFrom(ads->addr_read, 2); // 3. read data from conversion reg : send the first byte to read in function iic_RequestFrom, not sure if it is correct
-    if(rv == 2)
-    {
-        data = iic_read_byte() << 8; // MSB
-        data += iic_read_byte();    // LSB
-        return data;
-    }
+    //int rv = iic_RequestFrom(ads->addr_read, 2); // 3. read data from conversion reg : send the first byte to read in function iic_RequestFrom, not sure if it is correct
+    //if(rv == 2)
+    //{
+			iic_start(); // send start signal
+			iic_send_byte(ads->addr_read); // 高八位写入读操作
+			ack_flag = iic_wait_ack();
+			if(ack_flag == 1) // wait ack等候时间过久，失败返1
+			{
+					iic_stop(); // 未等到应答，发送停止信号
+					printf("read reg failed\r\n");
+					return 0;
+			}
+			data[0] = iic_read_byte(1); // MSB, need ack
+		//printf("high 8 bit: %x   ", data);
+			//iic_ack();
+			data[1] = iic_read_byte(0);    // LSB, need nack , id ack wrong, will not read the LSB
+			//iic_nack();
+		//printf("low 8 bit: %x   ", (uint8_t)data);	
+			iic_stop();
+			result = (data[0] << 8 ) | data[1];
+		//printf("high 8: ");
+		//printBits(sizeof(data[0]), &data[0]);
+		//printf("\r\nlow 8: ");
+		//printBits(sizeof(data[0]), &data[1]);
+		//printf("\r\nresult16: ");
+		//printBits(sizeof(result), &result);
+			//printf("final result is %d \r\n", result);
+			return result;
+   // }
+		//printf("read reg gg\r\n");
     return 0x0000;
 }
 
 uint8_t ADS1115_isReady(ADS1115 *ads){
-    uint16_t val = ADS1115_ReadReg(ads->addr_read, ADS1115_REG_CONFIG);
-    return ((val & ADS1X15_OS_NOT_BUSY) > 0);
+    uint16_t val = ADS1115_ReadReg(ads, ADS1115_REG_CONFIG);
+    return ((val & ADS1115_OS_NOT_BUSY) > 0);
 }
 
 uint8_t ADS1115_isBusy(ADS1115 *ads){
@@ -175,7 +218,12 @@ uint8_t ADS1115_isBusy(ADS1115 *ads){
 uint8_t ADS1115_isConnected(ADS1115 *ads){
     iic_start();
     iic_send_byte(ads->addr_write);
-    return (iic_wait_ack() == 0);
+		if(iic_wait_ack() == 0) return 1;
+    else
+		{
+			printf("ADS1115 connection failed with address: 0x%x\r\n", ads->address);
+			return 0;
+		}
 }
 
 
@@ -198,7 +246,7 @@ differs for different devices, check datasheet or readme.md
 void ADS1115_SetDataRate(ADS1115 *ads, uint8_t rate){
     ads->datarate = rate;
     if(rate > 7) rate = 7;
-    ads->datarate = rate <<= 5;
+    ads->datarate = (rate <<= 5);
 }
 
 uint8_t ADS1115_GetDataRate(ADS1115 *ads){
@@ -307,6 +355,7 @@ uint8_t ADS1115_GetMode(ADS1115 *ads){
 //
 
 void ADS1115_RequestADC(ADS1115 *ads, uint16_t readmode){
+		uint8_t writereg = 0;
     // write to register is needed in continuous mode as other flags can be changed
     uint16_t config = ADS1115_OS_START_SINGLE; // bit 15 force wake up if needed
     config |= readmode;                        // bit 12-14
@@ -320,7 +369,9 @@ void ADS1115_RequestADC(ADS1115 *ads, uint16_t readmode){
     if (ads->compLatch) config |= ADS1115_COMP_LATCH;
     else                config |= ADS1115_COMP_NON_LATCH; // bit 2 ALERT latching
     config |= ads->compQueConvert; // bit 0..1 ALERT mode
-    ADS1115_WriteReg(ads, ADS1115_REG_CONFIG, config);
+		//printf("Config is: 0x%x\r\n", config);
+    writereg = ADS1115_WriteReg(ads, ADS1115_REG_CONFIG, config);
+		//printf("The result of writereg is : %d\r\n", writereg);
 }
 int16_t ADS1115_GetValue(ADS1115 *ads){
     int16_t raw = ADS1115_ReadReg(ads, ADS1115_REG_CONVERT);
